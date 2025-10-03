@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>NASA Weather Data</title>
+  <style>
+    body {
+      font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+      margin: 0;
+      padding: 0;
+      background: linear-gradient(to right, #071311, #ACB6E5);
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+      padding-top: 50px;
+    }
+    .container {
+      background: rgb(235, 184, 184);
+      padding: 25px 30px;
+      border-radius: 12px;
+      box-shadow: 0 6px 20px rgba(0,0,0,0.15);
+      width: 500px;
+      text-align: center;
+    }
+    h2 {
+      margin-bottom: 20px;
+      color: #333;
+    }
+    label {
+      display: block;
+      margin: 10px 0 5px;
+      text-align: left;
+      font-weight: bold;
+      color: #444;
+    }
+    input {
+      width: 100%;
+      padding: 10px;
+      margin-bottom: 15px;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      font-size: 14px;
+    }
+    button {
+      width: 100%;
+      padding: 12px;
+      font-size: 15px;
+      border: none;
+      border-radius: 6px;
+      background: #4CAF50;
+      color: white;
+      cursor: pointer;
+      transition: 0.3s;
+    }
+    button:hover {
+      background: #45a049;
+    }
+    table {
+      margin-top: 25px;
+      border-collapse: collapse;
+      width: 100%;
+    }
+    th, td {
+      border: 1px solid #ddd;
+      padding: 10px;
+      text-align: center;
+      font-size: 14px;
+    }
+    th {
+      background: #4CAF50;
+      color: white;
+    }
+    tr:nth-child(even) {
+      background: #f9f9f9;
+    }
+    tr:hover {
+      background: #f1f1f1;
+    }
+    #output {
+      margin-top: 20px;
+      max-height: 300px;
+      overflow-y: auto;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h2>NASA Weather Viewer</h2>
+
+    <label>City Name:</label>
+    <input type="text" id="city" value="Karachi">
+    
+    <label>Start Date (yyyy-mm-dd):</label>
+    <input type="date" id="start" value="2024-09-01">
+
+    <label>End Date (yyyy-mm-dd):</label>
+    <input type="date" id="end" value="2024-09-05">
+
+    <button onclick="getData()">Get Weather</button>
+    <div id="output"></div>
+  </div>
+
+  <script>
+    const GEOCODE_API = "https://nominatim.openstreetmap.org/search?format=json&q=";
+
+    function formatDate(dateStr) {
+      return `${dateStr.slice(0,4)}-${dateStr.slice(4,6)}-${dateStr.slice(6,8)}`;
+    }
+
+    async function getData() {
+      const city = document.getElementById("city").value;
+      const start = document.getElementById("start").value.replace(/-/g, "");
+      const end = document.getElementById("end").value.replace(/-/g, "");
+
+      try {
+        // Step 1: Get coordinates from city name
+        const geoRes = await fetch(GEOCODE_API + encodeURIComponent(city));
+        const geoData = await geoRes.json();
+        if (!geoData || geoData.length === 0) {
+          document.getElementById("output").innerHTML = "<p style='color:red;'>❌ City not found.</p>";
+          return;
+        }
+        const lat = geoData[0].lat;
+        const lon = geoData[0].lon;
+
+        // Step 2: NASA POWER API
+        const url = `https://power.larc.nasa.gov/api/temporal/daily/point?parameters=T2M,WS10M,RH2M&community=RE&longitude=${lon}&latitude=${lat}&start=${start}&end=${end}&format=JSON`;
+        const res = await fetch(url);
+        const data = await res.json();
+
+        if (!data.properties || !data.properties.parameter) {
+          document.getElementById("output").innerHTML = "<p style='color:red;'>❌ No data found for this range.</p>";
+          return;
+        }
+
+        const temps = data.properties.parameter.T2M;
+        const wind = data.properties.parameter.WS10M;
+        const humid = data.properties.parameter.RH2M;
+
+        // Step 3: Build table with formatted dates
+        let table = `<h3>Results for ${city} (${lat}, ${lon})</h3>
+        <table>
+          <tr><th>Date</th><th>🌡 Temp (°C)</th><th>💨 Wind (m/s)</th><th>💧 Humidity (%)</th></tr>`;
+
+        for (let date in temps) {
+          table += `<tr>
+            <td>${formatDate(date)}</td>
+            <td>${temps[date]}</td>
+            <td>${wind[date]}</td>
+            <td>${humid[date]}</td>
+          </tr>`;
+        }
+        table += "</table>";
+
+        document.getElementById("output").innerHTML = table;
+      } catch (err) {
+        document.getElementById("output").innerHTML = "<p style='color:red;'>❌ Error fetching data.</p>";
+        console.error(err);
+      }
+    }
+  </script>
+</body>
+</html>
