@@ -2,10 +2,11 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>NASA Weather Data</title>
+  <title>NASA Climate Risk Dashboard</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <style>
     body {
-      font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+      font-family: "Segoe UI", Tahoma, sans-serif;
       margin: 0;
       padding: 0;
       background: linear-gradient(to right, #071311, #ACB6E5);
@@ -13,24 +14,19 @@
       display: flex;
       justify-content: center;
       align-items: flex-start;
-      padding-top: 50px;
+      padding-top: 40px;
     }
     .container {
-      background: rgb(235, 184, 184);
+      background: #fff;
       padding: 25px 30px;
       border-radius: 12px;
       box-shadow: 0 6px 20px rgba(0,0,0,0.15);
-      width: 500px;
-      text-align: center;
+      width: 750px;
     }
-    h2 {
-      margin-bottom: 20px;
-      color: #333;
-    }
+    h2 { margin-bottom: 15px; color: #333; text-align: center; }
     label {
       display: block;
       margin: 10px 0 5px;
-      text-align: left;
       font-weight: bold;
       color: #444;
     }
@@ -40,10 +36,10 @@
       margin-bottom: 15px;
       border: 1px solid #ccc;
       border-radius: 6px;
-      font-size: 14px;
     }
+    .row { display: flex; justify-content: space-between; gap: 15px; }
     button {
-      width: 100%;
+      flex: 1;
       padding: 12px;
       font-size: 15px;
       border: none;
@@ -51,58 +47,80 @@
       background: #4CAF50;
       color: white;
       cursor: pointer;
+      margin-top: 5px;
       transition: 0.3s;
     }
-    button:hover {
-      background: #45a049;
-    }
+    button:hover { background: #45a049; }
     table {
-      margin-top: 25px;
+      margin-top: 20px;
       border-collapse: collapse;
       width: 100%;
     }
     th, td {
       border: 1px solid #ddd;
-      padding: 10px;
+      padding: 8px;
       text-align: center;
-      font-size: 14px;
     }
-    th {
-      background: #4CAF50;
-      color: white;
-    }
-    tr:nth-child(even) {
-      background: #f9f9f9;
-    }
-    tr:hover {
-      background: #f1f1f1;
-    }
-    #output {
+    th { background: #4CAF50; color: white; }
+    #summary {
+      display: flex;
+      justify-content: space-around;
       margin-top: 20px;
-      max-height: 300px;
-      overflow-y: auto;
+      flex-wrap: wrap;
     }
+    .card {
+      padding: 15px;
+      margin: 10px;
+      border-radius: 8px;
+      width: 160px;
+      font-weight: bold;
+      color: #fff;
+      text-align: center;
+    }
+    .hot { background: #ff5252; }
+    .cold { background: #4fc3f7; }
+    .windy { background: #81c784; }
+    .wet { background: #9575cd; }
+    .info { margin-top: 20px; font-size: 14px; background: #f8f8f8; padding: 12px; border-radius: 6px; }
+    canvas { margin-top: 25px; }
   </style>
 </head>
 <body>
   <div class="container">
-    <h2>NASA Weather Viewer</h2>
+    <h2>🌍 NASA Climate Risk Dashboard</h2>
 
     <label>City Name:</label>
     <input type="text" id="city" value="Karachi">
-    
-    <label>Start Date (yyyy-mm-dd):</label>
+
+    <label>Start Date:</label>
     <input type="date" id="start" value="2024-09-01">
 
-    <label>End Date (yyyy-mm-dd):</label>
+    <label>End Date:</label>
     <input type="date" id="end" value="2024-09-05">
 
-    <button onclick="getData()">Get Weather</button>
+    <label>⚙️ Customize Thresholds:</label>
+    <div class="row">
+      <input type="number" id="hotThr" value="35" placeholder="Hot if > °C">
+      <input type="number" id="coldThr" value="5" placeholder="Cold if < °C">
+      <input type="number" id="windThr" value="10" placeholder="Windy if > m/s">
+      <input type="number" id="wetThr" value="85" placeholder="Wet if > % Humidity">
+    </div>
+
+    <div class="row">
+      <button onclick="getData()">Get Weather</button>
+      <button onclick="downloadCSV()">Download CSV</button>
+      <button onclick="downloadJSON()">Download JSON</button>
+    </div>
+
+    <div id="summary"></div>
+    <canvas id="chart"></canvas>
     <div id="output"></div>
+    <div class="info" id="explanation"></div>
   </div>
 
   <script>
     const GEOCODE_API = "https://nominatim.openstreetmap.org/search?format=json&q=";
+    let globalData = [], metaInfo = {};
 
     function formatDate(dateStr) {
       return `${dateStr.slice(0,4)}-${dateStr.slice(4,6)}-${dateStr.slice(6,8)}`;
@@ -114,50 +132,152 @@
       const end = document.getElementById("end").value.replace(/-/g, "");
 
       try {
-        // Step 1: Get coordinates from city name
+        // Step 1: Geocode
         const geoRes = await fetch(GEOCODE_API + encodeURIComponent(city));
         const geoData = await geoRes.json();
-        if (!geoData || geoData.length === 0) {
+        if (!geoData.length) {
           document.getElementById("output").innerHTML = "<p style='color:red;'>❌ City not found.</p>";
           return;
         }
-        const lat = geoData[0].lat;
-        const lon = geoData[0].lon;
+        const lat = geoData[0].lat, lon = geoData[0].lon;
 
         // Step 2: NASA POWER API
         const url = `https://power.larc.nasa.gov/api/temporal/daily/point?parameters=T2M,WS10M,RH2M&community=RE&longitude=${lon}&latitude=${lat}&start=${start}&end=${end}&format=JSON`;
         const res = await fetch(url);
         const data = await res.json();
 
-        if (!data.properties || !data.properties.parameter) {
-          document.getElementById("output").innerHTML = "<p style='color:red;'>❌ No data found for this range.</p>";
+        if (!data.properties?.parameter) {
+          document.getElementById("output").innerHTML = "<p style='color:red;'>❌ No data found.</p>";
           return;
         }
 
         const temps = data.properties.parameter.T2M;
         const wind = data.properties.parameter.WS10M;
         const humid = data.properties.parameter.RH2M;
-
-        // Step 3: Build table with formatted dates
-        let table = `<h3>Results for ${city} (${lat}, ${lon})</h3>
-        <table>
-          <tr><th>Date</th><th>🌡 Temp (°C)</th><th>💨 Wind (m/s)</th><th>💧 Humidity (%)</th></tr>`;
+        globalData = [];
 
         for (let date in temps) {
-          table += `<tr>
-            <td>${formatDate(date)}</td>
-            <td>${temps[date]}</td>
-            <td>${wind[date]}</td>
-            <td>${humid[date]}</td>
-          </tr>`;
+          globalData.push({
+            date: formatDate(date),
+            temp: temps[date],
+            wind: wind[date],
+            humid: humid[date]
+          });
         }
-        table += "</table>";
 
-        document.getElementById("output").innerHTML = table;
+        metaInfo = { city, lat, lon, start, end, source: "NASA POWER API" };
+
+        buildTable();
+        buildSummary();
+        buildChart();
+        explainResults();
       } catch (err) {
         document.getElementById("output").innerHTML = "<p style='color:red;'>❌ Error fetching data.</p>";
         console.error(err);
       }
+    }
+
+    function buildTable() {
+      let table = `<h3>📊 Data for ${metaInfo.city} (${metaInfo.lat}, ${metaInfo.lon})</h3>
+      <table>
+        <tr><th>Date</th><th>🌡 Temp (°C)</th><th>💨 Wind (m/s)</th><th>💧 Humidity (%)</th></tr>`;
+      globalData.forEach(d => {
+        table += `<tr><td>${d.date}</td><td>${d.temp}</td><td>${d.wind}</td><td>${d.humid}</td></tr>`;
+      });
+      table += "</table>";
+      document.getElementById("output").innerHTML = table;
+    }
+
+    function buildSummary() {
+      const hotThr = +document.getElementById("hotThr").value;
+      const coldThr = +document.getElementById("coldThr").value;
+      const windThr = +document.getElementById("windThr").value;
+      const wetThr = +document.getElementById("wetThr").value;
+
+      let hot = 0, cold = 0, windy = 0, wet = 0, sumT=0;
+      globalData.forEach(d => {
+        if (d.temp > hotThr) hot++;
+        if (d.temp < coldThr) cold++;
+        if (d.wind > windThr) windy++;
+        if (d.humid > wetThr) wet++;
+        sumT += d.temp;
+      });
+
+      const total = globalData.length;
+      const meanTemp = (sumT/total).toFixed(1);
+
+      const summaryHTML = `
+        <div class="card hot">🔥 Very Hot: ${(hot/total*100).toFixed(1)}%</div>
+        <div class="card cold">❄️ Very Cold: ${(cold/total*100).toFixed(1)}%</div>
+        <div class="card windy">💨 Very Windy: ${(windy/total*100).toFixed(1)}%</div>
+        <div class="card wet">💧 Very Wet: ${(wet/total*100).toFixed(1)}%</div>
+        <div class="card" style="background:#333;">🌡 Avg Temp: ${meanTemp}°C</div>
+      `;
+      document.getElementById("summary").innerHTML = summaryHTML;
+    }
+
+    function buildChart() {
+      const ctx = document.getElementById('chart').getContext('2d');
+      const labels = globalData.map(d => d.date);
+      const temps = globalData.map(d => d.temp);
+      const winds = globalData.map(d => d.wind);
+      const humid = globalData.map(d => d.humid);
+
+      if (window.weatherChart) window.weatherChart.destroy();
+
+      window.weatherChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels,
+          datasets: [
+            { label: 'Temp (°C)', data: temps, borderColor: 'red', fill: false },
+            { label: 'Wind (m/s)', data: winds, borderColor: 'blue', fill: false },
+            { label: 'Humidity (%)', data: humid, borderColor: 'green', fill: false }
+          ]
+        },
+        options: { responsive: true, plugins: { legend: { position: 'top' } } }
+      });
+    }
+
+    function explainResults() {
+      const hotThr = document.getElementById("hotThr").value;
+      const coldThr = document.getElementById("coldThr").value;
+      const windThr = document.getElementById("windThr").value;
+      const wetThr = document.getElementById("wetThr").value;
+
+      document.getElementById("explanation").innerHTML =
+        `This dashboard shows daily weather data from NASA POWER. 
+        Values are analyzed for risks: 
+        "Very Hot" means >${hotThr}°C, 
+        "Very Cold" <${coldThr}°C, 
+        "Very Windy" >${windThr} m/s, 
+        "Very Wet" >${wetThr}% humidity. 
+        Use this to assess probabilities of extreme weather for planning.`;
+    }
+
+    function downloadCSV() {
+      if (!globalData.length) return;
+      let csv = "Date,Temp (°C),Wind (m/s),Humidity (%)\n";
+      globalData.forEach(d => {
+        csv += `${d.date},${d.temp},${d.wind},${d.humid}\n`;
+      });
+      const blob = new Blob([csv], { type: "text/csv" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "nasa_weather_data.csv";
+      a.click();
+    }
+
+    function downloadJSON() {
+      if (!globalData.length) return;
+      const obj = { meta: metaInfo, data: globalData };
+      const blob = new Blob([JSON.stringify(obj, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "nasa_weather_data.json";
+      a.click();
     }
   </script>
 </body>
